@@ -1,0 +1,1539 @@
+{
+  "info": {
+    "name": "USHIKA WhatsApp Integration",
+    "description": "Exercises the USHIKA backend: simulated Meta webhooks (signed), the REST API, and outbound sends. Start with '0. Setup > Obtain API token'. See docs/TESTING.md.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      {
+        "key": "key",
+        "value": "Authorization",
+        "type": "string"
+      },
+      {
+        "key": "value",
+        "value": "Token {{api_token}}",
+        "type": "string"
+      },
+      {
+        "key": "in",
+        "value": "header",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:8000"
+    },
+    {
+      "key": "username",
+      "value": ""
+    },
+    {
+      "key": "password",
+      "value": ""
+    },
+    {
+      "key": "api_token",
+      "value": ""
+    },
+    {
+      "key": "app_secret",
+      "value": "",
+      "description": "Must equal WHATSAPP_APP_SECRET"
+    },
+    {
+      "key": "verify_token",
+      "value": "",
+      "description": "Must equal WHATSAPP_VERIFY_TOKEN"
+    },
+    {
+      "key": "phone_number_id",
+      "value": "",
+      "description": "WHATSAPP_PHONE_NUMBER_ID (informational)"
+    },
+    {
+      "key": "customer_wa_id",
+      "value": "",
+      "description": "Your verified test recipient, digits only"
+    },
+    {
+      "key": "sample_image_url",
+      "value": "https://www.gstatic.com/webp/gallery/1.jpg"
+    },
+    {
+      "key": "message_id",
+      "value": ""
+    },
+    {
+      "key": "attachment_id",
+      "value": ""
+    },
+    {
+      "key": "last_inbound_wamid",
+      "value": ""
+    },
+    {
+      "key": "last_outbound_wamid",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Setup",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Obtain API token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/token/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "token"
+              ]
+            },
+            "description": "Exchanges a Django username/password for a DRF token and stores it in `api_token`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('api_token', pm.response.json().token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Check login (who am I)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/me/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "me"
+              ]
+            },
+            "description": "Returns the user that `api_token` belongs to. 401 means the token is missing or invalid."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('has a username', () => pm.expect(pm.response.json().username).to.be.a('string'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1. Webhook (simulate Meta)",
+      "description": "Requests here pretend to be Meta. POST bodies are signed by the folder's pre-request script with `app_secret`, which must equal WHATSAPP_APP_SECRET in the server's .env.",
+      "auth": {
+        "type": "noauth"
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// Fresh ids per request, so Meta-style events are never mistaken for duplicates.",
+              "const nowMs = Date.now();",
+              "pm.variables.set('now_ts', String(Math.floor(nowMs / 1000)));",
+              "pm.variables.set('wamid', 'wamid.POSTMAN' + nowMs);",
+              "pm.variables.set('media_id', String(nowMs));",
+              "",
+              "// Sign POST bodies exactly as Meta does: HMAC-SHA256(raw body, app secret).",
+              "if (pm.request.method === 'POST') {",
+              "  const secret = pm.collectionVariables.get('app_secret');",
+              "  if (!secret) { console.warn('Set the app_secret collection variable to match WHATSAPP_APP_SECRET'); }",
+              "  const body = pm.variables.replaceIn(pm.request.body.raw);",
+              "  const signature = CryptoJS.HmacSHA256(body, secret || '').toString(CryptoJS.enc.Hex);",
+              "  pm.request.headers.upsert({ key: 'X-Hub-Signature-256', value: 'sha256=' + signature });",
+              "}"
+            ]
+          }
+        }
+      ],
+      "item": [
+        {
+          "name": "Verify subscription (handshake)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/webhooks/whatsapp/?hub.mode=subscribe&hub.verify_token={{verify_token}}&hub.challenge=1158201444",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "webhooks",
+                "whatsapp"
+              ],
+              "query": [
+                {
+                  "key": "hub.mode",
+                  "value": "subscribe"
+                },
+                {
+                  "key": "hub.verify_token",
+                  "value": "{{verify_token}}"
+                },
+                {
+                  "key": "hub.challenge",
+                  "value": "1158201444"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('echoes challenge', () => pm.expect(pm.response.text()).to.eql('1158201444'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verify subscription - wrong token (403)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/webhooks/whatsapp/?hub.mode=subscribe&hub.verify_token=wrong-token&hub.challenge=1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "webhooks",
+                "whatsapp"
+              ],
+              "query": [
+                {
+                  "key": "hub.mode",
+                  "value": "subscribe"
+                },
+                {
+                  "key": "hub.verify_token",
+                  "value": "wrong-token"
+                },
+                {
+                  "key": "hub.challenge",
+                  "value": "1"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Inbound text message",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/webhooks/whatsapp/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "webhooks",
+                "whatsapp"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"id\": \"WABA_ID\",\n      \"changes\": [\n        {\n          \"field\": \"messages\",\n          \"value\": {\n            \"messaging_product\": \"whatsapp\",\n            \"metadata\": {\n              \"display_phone_number\": \"15550001111\",\n              \"phone_number_id\": \"{{phone_number_id}}\"\n            },\n            \"contacts\": [\n              {\n                \"profile\": {\n                  \"name\": \"Postman Tester\"\n                },\n                \"wa_id\": \"{{customer_wa_id}}\"\n              }\n            ],\n            \"messages\": [\n              {\n                \"from\": \"{{customer_wa_id}}\",\n                \"id\": \"{{wamid}}\",\n                \"timestamp\": \"{{now_ts}}\",\n                \"type\": \"text\",\n                \"text\": {\n                  \"body\": \"Hello from Postman\"\n                }\n              }\n            ]\n          }\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('acknowledged', () => pm.expect(pm.response.json().status).to.be.oneOf(['ok', 'duplicate']));",
+                  "pm.collectionVariables.set('last_inbound_wamid', pm.variables.get('wamid'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Inbound image message",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/webhooks/whatsapp/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "webhooks",
+                "whatsapp"
+              ]
+            },
+            "description": "Creates an attachment and tries to download it from Meta. With a made-up media id the download fails and is recorded as `failed` - that is expected; use a real one from a live webhook to test downloads.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"id\": \"WABA_ID\",\n      \"changes\": [\n        {\n          \"field\": \"messages\",\n          \"value\": {\n            \"messaging_product\": \"whatsapp\",\n            \"metadata\": {\n              \"display_phone_number\": \"15550001111\",\n              \"phone_number_id\": \"{{phone_number_id}}\"\n            },\n            \"contacts\": [\n              {\n                \"profile\": {\n                  \"name\": \"Postman Tester\"\n                },\n                \"wa_id\": \"{{customer_wa_id}}\"\n              }\n            ],\n            \"messages\": [\n              {\n                \"from\": \"{{customer_wa_id}}\",\n                \"id\": \"{{wamid}}\",\n                \"timestamp\": \"{{now_ts}}\",\n                \"type\": \"image\",\n                \"image\": {\n                  \"caption\": \"Postman image\",\n                  \"mime_type\": \"image/jpeg\",\n                  \"sha256\": \"\",\n                  \"id\": \"{{media_id}}\"\n                }\n              }\n            ]\n          }\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('acknowledged', () => pm.expect(pm.response.json().status).to.be.oneOf(['ok', 'duplicate']));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Inbound document message",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/webhooks/whatsapp/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "webhooks",
+                "whatsapp"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"id\": \"WABA_ID\",\n      \"changes\": [\n        {\n          \"field\": \"messages\",\n          \"value\": {\n            \"messaging_product\": \"whatsapp\",\n            \"metadata\": {\n              \"display_phone_number\": \"15550001111\",\n              \"phone_number_id\": \"{{phone_number_id}}\"\n            },\n            \"contacts\": [\n              {\n                \"profile\": {\n                  \"name\": \"Postman Tester\"\n                },\n                \"wa_id\": \"{{customer_wa_id}}\"\n              }\n            ],\n            \"messages\": [\n              {\n                \"from\": \"{{customer_wa_id}}\",\n                \"id\": \"{{wamid}}\",\n                \"timestamp\": \"{{now_ts}}\",\n                \"type\": \"document\",\n                \"document\": {\n                  \"caption\": \"Invoice\",\n                  \"filename\": \"invoice.pdf\",\n                  \"mime_type\": \"application/pdf\",\n                  \"sha256\": \"\",\n                  \"id\": \"{{media_id}}\"\n                }\n              }\n            ]\n          }\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('acknowledged', () => pm.expect(pm.response.json().status).to.be.oneOf(['ok', 'duplicate']));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Inbound button reply (interactive)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/webhooks/whatsapp/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "webhooks",
+                "whatsapp"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"id\": \"WABA_ID\",\n      \"changes\": [\n        {\n          \"field\": \"messages\",\n          \"value\": {\n            \"messaging_product\": \"whatsapp\",\n            \"metadata\": {\n              \"display_phone_number\": \"15550001111\",\n              \"phone_number_id\": \"{{phone_number_id}}\"\n            },\n            \"contacts\": [\n              {\n                \"profile\": {\n                  \"name\": \"Postman Tester\"\n                },\n                \"wa_id\": \"{{customer_wa_id}}\"\n              }\n            ],\n            \"messages\": [\n              {\n                \"from\": \"{{customer_wa_id}}\",\n                \"id\": \"{{wamid}}\",\n                \"timestamp\": \"{{now_ts}}\",\n                \"type\": \"interactive\",\n                \"interactive\": {\n                  \"type\": \"button_reply\",\n                  \"button_reply\": {\n                    \"id\": \"yes\",\n                    \"title\": \"Yes please\"\n                  }\n                }\n              }\n            ]\n          }\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('acknowledged', () => pm.expect(pm.response.json().status).to.be.oneOf(['ok', 'duplicate']));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Duplicate delivery (send twice)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/webhooks/whatsapp/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "webhooks",
+                "whatsapp"
+              ]
+            },
+            "description": "Fixed body. The first send returns {status: ok}; every later send returns {status: duplicate} and stores nothing new.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"id\": \"WABA_ID\",\n      \"changes\": [\n        {\n          \"field\": \"messages\",\n          \"value\": {\n            \"messaging_product\": \"whatsapp\",\n            \"metadata\": {\n              \"display_phone_number\": \"15550001111\",\n              \"phone_number_id\": \"{{phone_number_id}}\"\n            },\n            \"contacts\": [\n              {\n                \"profile\": {\n                  \"name\": \"Postman Tester\"\n                },\n                \"wa_id\": \"{{customer_wa_id}}\"\n              }\n            ],\n            \"messages\": [\n              {\n                \"from\": \"{{customer_wa_id}}\",\n                \"id\": \"wamid.POSTMAN-DUPLICATE\",\n                \"timestamp\": \"1761600000\",\n                \"type\": \"text\",\n                \"text\": {\n                  \"body\": \"I am always the same payload\"\n                }\n              }\n            ]\n          }\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('acknowledged', () => pm.expect(pm.response.json().status).to.be.oneOf(['ok', 'duplicate']));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Status: delivered (last sent message)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/webhooks/whatsapp/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "webhooks",
+                "whatsapp"
+              ]
+            },
+            "description": "Uses `last_outbound_wamid`, set by '2. Messages > Send text message'.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"id\": \"WABA_ID\",\n      \"changes\": [\n        {\n          \"field\": \"messages\",\n          \"value\": {\n            \"messaging_product\": \"whatsapp\",\n            \"metadata\": {\n              \"display_phone_number\": \"15550001111\",\n              \"phone_number_id\": \"{{phone_number_id}}\"\n            },\n            \"statuses\": [\n              {\n                \"id\": \"{{last_outbound_wamid}}\",\n                \"status\": \"delivered\",\n                \"timestamp\": \"{{now_ts}}\",\n                \"recipient_id\": \"{{customer_wa_id}}\",\n                \"conversation\": {\n                  \"id\": \"CONVERSATION_ID\",\n                  \"origin\": {\n                    \"type\": \"service\"\n                  }\n                },\n                \"pricing\": {\n                  \"billable\": true,\n                  \"pricing_model\": \"PMP\",\n                  \"category\": \"service\"\n                }\n              }\n            ]\n          }\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('acknowledged', () => pm.expect(pm.response.json().status).to.be.oneOf(['ok', 'duplicate']));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Status: read (last sent message)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/webhooks/whatsapp/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "webhooks",
+                "whatsapp"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"id\": \"WABA_ID\",\n      \"changes\": [\n        {\n          \"field\": \"messages\",\n          \"value\": {\n            \"messaging_product\": \"whatsapp\",\n            \"metadata\": {\n              \"display_phone_number\": \"15550001111\",\n              \"phone_number_id\": \"{{phone_number_id}}\"\n            },\n            \"statuses\": [\n              {\n                \"id\": \"{{last_outbound_wamid}}\",\n                \"status\": \"read\",\n                \"timestamp\": \"{{now_ts}}\",\n                \"recipient_id\": \"{{customer_wa_id}}\",\n                \"conversation\": {\n                  \"id\": \"CONVERSATION_ID\",\n                  \"origin\": {\n                    \"type\": \"service\"\n                  }\n                },\n                \"pricing\": {\n                  \"billable\": true,\n                  \"pricing_model\": \"PMP\",\n                  \"category\": \"service\"\n                }\n              }\n            ]\n          }\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('acknowledged', () => pm.expect(pm.response.json().status).to.be.oneOf(['ok', 'duplicate']));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Status: failed (last sent message)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/webhooks/whatsapp/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "webhooks",
+                "whatsapp"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"id\": \"WABA_ID\",\n      \"changes\": [\n        {\n          \"field\": \"messages\",\n          \"value\": {\n            \"messaging_product\": \"whatsapp\",\n            \"metadata\": {\n              \"display_phone_number\": \"15550001111\",\n              \"phone_number_id\": \"{{phone_number_id}}\"\n            },\n            \"statuses\": [\n              {\n                \"id\": \"{{last_outbound_wamid}}\",\n                \"status\": \"failed\",\n                \"timestamp\": \"{{now_ts}}\",\n                \"recipient_id\": \"{{customer_wa_id}}\",\n                \"conversation\": {\n                  \"id\": \"CONVERSATION_ID\",\n                  \"origin\": {\n                    \"type\": \"service\"\n                  }\n                },\n                \"pricing\": {\n                  \"billable\": true,\n                  \"pricing_model\": \"PMP\",\n                  \"category\": \"service\"\n                },\n                \"errors\": [\n                  {\n                    \"code\": 131047,\n                    \"title\": \"Re-engagement message\",\n                    \"message\": \"Re-engagement message\",\n                    \"error_data\": {\n                      \"details\": \"Message failed to send because more than 24 hours have passed since the customer last replied to this number.\"\n                    }\n                  }\n                ]\n              }\n            ]\n          }\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('acknowledged', () => pm.expect(pm.response.json().status).to.be.oneOf(['ok', 'duplicate']));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Invalid signature (403)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/webhooks/whatsapp/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "webhooks",
+                "whatsapp"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"id\": \"WABA_ID\",\n      \"changes\": [\n        {\n          \"field\": \"messages\",\n          \"value\": {\n            \"messaging_product\": \"whatsapp\",\n            \"metadata\": {\n              \"display_phone_number\": \"15550001111\",\n              \"phone_number_id\": \"{{phone_number_id}}\"\n            },\n            \"contacts\": [\n              {\n                \"profile\": {\n                  \"name\": \"Postman Tester\"\n                },\n                \"wa_id\": \"{{customer_wa_id}}\"\n              }\n            ],\n            \"messages\": [\n              {\n                \"from\": \"{{customer_wa_id}}\",\n                \"id\": \"{{wamid}}\",\n                \"timestamp\": \"{{now_ts}}\",\n                \"type\": \"text\",\n                \"text\": {\n                  \"body\": \"forged\"\n                }\n              }\n            ]\n          }\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.request.headers.upsert({ key: 'X-Hub-Signature-256', value: 'sha256=' + '0'.repeat(64) });"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Messages",
+      "item": [
+        {
+          "name": "List messages",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const results = pm.response.json().results;",
+                  "if (results.length) { pm.collectionVariables.set('message_id', results[0].id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Filter: inbound from one contact",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/?direction=inbound&wa_id={{customer_wa_id}}&ordering=-timestamp",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages"
+              ],
+              "query": [
+                {
+                  "key": "direction",
+                  "value": "inbound"
+                },
+                {
+                  "key": "wa_id",
+                  "value": "{{customer_wa_id}}"
+                },
+                {
+                  "key": "ordering",
+                  "value": "-timestamp"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Search message text",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/?search=hello",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "hello"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Messages in a time window",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/?since=2026-01-01T00:00:00Z&until=2030-01-01T00:00:00Z&page_size=20",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages"
+              ],
+              "query": [
+                {
+                  "key": "since",
+                  "value": "2026-01-01T00:00:00Z"
+                },
+                {
+                  "key": "until",
+                  "value": "2030-01-01T00:00:00Z"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get message (with status history)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/{{message_id}}/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "{{message_id}}"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Message status events",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/{{message_id}}/statuses/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "{{message_id}}",
+                "statuses"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Send text message",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/send/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "send"
+              ]
+            },
+            "description": "Free-form text only works inside the 24-hour window after the customer last messaged you. Outside it, send a template (next request).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"to\": \"{{customer_wa_id}}\",\n  \"type\": \"text\",\n  \"text\": \"Hello from USHIKA 👋\",\n  \"idempotency_key\": \"{{$guid}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 sent, or 502 if Meta rejected it', () => pm.expect(pm.response.code).to.be.oneOf([201, 502]));",
+                  "const message = pm.response.json();",
+                  "pm.collectionVariables.set('message_id', message.id);",
+                  "if (message.wa_message_id) { pm.collectionVariables.set('last_outbound_wamid', message.wa_message_id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Send hello_world template",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/send/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "send"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"to\": \"{{customer_wa_id}}\",\n  \"type\": \"template\",\n  \"template_name\": \"hello_world\",\n  \"language_code\": \"en_US\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 sent, or 502 if Meta rejected it', () => pm.expect(pm.response.code).to.be.oneOf([201, 502]));",
+                  "const message = pm.response.json();",
+                  "if (message.wa_message_id) { pm.collectionVariables.set('last_outbound_wamid', message.wa_message_id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Send image by link",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/send/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "send"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"to\": \"{{customer_wa_id}}\",\n  \"type\": \"image\",\n  \"media_link\": \"{{sample_image_url}}\",\n  \"caption\": \"Sent through USHIKA\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 or 502', () => pm.expect(pm.response.code).to.be.oneOf([201, 502]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reply to last inbound message",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/send/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "send"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"to\": \"{{customer_wa_id}}\",\n  \"type\": \"text\",\n  \"text\": \"Replying to your message\",\n  \"reply_to\": \"{{last_inbound_wamid}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 or 502', () => pm.expect(pm.response.code).to.be.oneOf([201, 502]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Idempotent retry (send twice)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/send/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "send"
+              ]
+            },
+            "description": "Fixed idempotency_key: the second send returns 200 with the original record and does not call Meta again.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"to\": \"{{customer_wa_id}}\",\n  \"type\": \"text\",\n  \"text\": \"Only once, please\",\n  \"idempotency_key\": \"postman-idempotency-demo\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('first 201/502, repeats 200', () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 502]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Validation error (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/messages/send/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "send"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"to\": \"{{customer_wa_id}}\",\n  \"type\": \"text\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "pm.test('names the field', () => pm.expect(pm.response.json()).to.have.property('text'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Contacts",
+      "item": [
+        {
+          "name": "List contacts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/contacts/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "contacts"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Search contacts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/contacts/?search={{customer_wa_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "contacts"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "{{customer_wa_id}}"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Attachments",
+      "item": [
+        {
+          "name": "List attachments",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/attachments/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "attachments"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const results = pm.response.json().results;",
+                  "if (results.length) { pm.collectionVariables.set('attachment_id', results[0].id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Failed downloads",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/attachments/?download_status=failed",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "attachments"
+              ],
+              "query": [
+                {
+                  "key": "download_status",
+                  "value": "failed"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get attachment",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/attachments/{{attachment_id}}/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "attachments",
+                "{{attachment_id}}"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Download file",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/attachments/{{attachment_id}}/download/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "attachments",
+                "{{attachment_id}}",
+                "download"
+              ]
+            },
+            "description": "Use 'Send and Download' in Postman to save the file."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 file, or 404 if not downloaded', () => pm.expect(pm.response.code).to.be.oneOf([200, 404]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Save file (contact level rules)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/attachments/{{attachment_id}}/save/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "attachments",
+                "{{attachment_id}}",
+                "save"
+              ]
+            },
+            "description": "Fetches the file from WhatsApp and saves it to local storage; also retries a failed save. 403 when the contact's level does not allow it (images, PDFs) or you are not a superuser (other media)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 saved, 403 not allowed, or 502 failed', () => pm.expect(pm.response.code).to.be.oneOf([200, 403, 502]));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. Delivery statuses",
+      "item": [
+        {
+          "name": "List status events",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/statuses/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "statuses"
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Statuses for last sent message",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/statuses/?wa_message_id={{last_outbound_wamid}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "statuses"
+              ],
+              "query": [
+                {
+                  "key": "wa_message_id",
+                  "value": "{{last_outbound_wamid}}"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
