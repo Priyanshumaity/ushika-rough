@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf-token" content="{{ csrf_token }}">
+<title>USHIKA Live</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230f9d6b'/%3E%3Ctext x='16' y='22' font-family='Arial' font-weight='700' font-size='17' fill='white' text-anchor='middle'%3EU%3C/text%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #f3f4f1; --panel: #ffffff; --panel-2: #f8f9f7; --ink: #17201b; --muted: #68736c; --line: #e2e6e0;
+  --accent: #0f9d6b; --accent-soft: #e2f5ec; --accent-ink: #ffffff;
+  --in: #ffffff; --out: #dcf5e7; --thread: #eef0ec;
+  --ok: #0f9d6b; --warn: #b7791f; --warn-soft: #fbf1df; --bad: #c2410c; --bad-soft: #fde9df;
+  --lock: #5b5f97; --lock-soft: #ecebfa; --read: #2b8ee6;
+  --shadow: 0 1px 2px rgba(16, 24, 20, .06), 0 4px 16px rgba(16, 24, 20, .05);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0c110f; --panel: #131a17; --panel-2: #18201c; --ink: #e6ece8; --muted: #8b968f; --line: #232c27;
+    --accent: #2fbf86; --accent-soft: #163428; --accent-ink: #06130d;
+    --in: #1b2420; --out: #14402d; --thread: #0f1513;
+    --ok: #2fbf86; --warn: #e0a84a; --warn-soft: #33281455; --bad: #f07a4a; --bad-soft: #3a1d1255;
+    --lock: #a9a8f0; --lock-soft: #25244055; --read: #5cb2ff;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 20px rgba(0, 0, 0, .25);
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  display: flex; flex-direction: column;
+}
+button { font: inherit; color: inherit; cursor: pointer; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.muted { color: var(--muted); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+
+/* Top bar */
+.top { display: flex; align-items: center; gap: 16px; padding: 10px 18px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: .02em; }
+.logo { width: 30px; height: 30px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-weight: 800; }
+.live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--muted); padding: 3px 9px; border-radius: 99px; background: var(--panel-2); border: 1px solid var(--line); }
+.live i { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 0 var(--ok); animation: pulse 2s infinite; }
+.live.off i { background: var(--bad); animation: none; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 60%, transparent); } 70% { box-shadow: 0 0 0 7px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+.tabs { display: flex; gap: 4px; background: var(--panel-2); border: 1px solid var(--line); padding: 3px; border-radius: 10px; }
+.tabs button { border: 0; background: none; padding: 5px 14px; border-radius: 7px; font-weight: 600; color: var(--muted); }
+.tabs button.on { background: var(--panel); color: var(--ink); box-shadow: var(--shadow); }
+.stats { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.stat { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 4px 11px; display: flex; align-items: baseline; gap: 6px; }
+.stat b { font-size: 15px; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 12px; color: var(--muted); }
+.user { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.user form { margin: 0; }
+.linkbtn { border: 0; background: none; color: var(--accent); padding: 0; }
+
+/* Layout */
+main { flex: 1; min-height: 0; display: flex; }
+.view { flex: 1; min-height: 0; min-width: 0; display: none; }
+.view.on { display: flex; }
+
+/* Contacts */
+.side { width: 320px; flex-shrink: 0; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+.search { padding: 12px; border-bottom: 1px solid var(--line); }
+.search input, .composer textarea { width: 100%; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); border-radius: 10px; padding: 9px 12px; font: inherit; outline: none; }
+.search input:focus, .composer textarea:focus { border-color: var(--accent); }
+.contacts { overflow-y: auto; flex: 1; }
+.contact { display: flex; gap: 11px; padding: 11px 14px; cursor: pointer; border-bottom: 1px solid var(--line); align-items: center; }
+.contact:hover { background: var(--panel-2); }
+.contact.on { background: var(--accent-soft); }
+.avatar { width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center; font-weight: 700; color: #fff; font-size: 14px; }
+.cbody { flex: 1; min-width: 0; }
+.crow { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.cname { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ctime { font-size: 11px; color: var(--muted); flex-shrink: 0; }
+.csub { display: flex; gap: 6px; align-items: center; margin-top: 2px; font-size: 12px; color: var(--muted); }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); margin-left: auto; flex-shrink: 0; }
+.chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 99px; background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.chip.level { background: var(--lock-soft); color: var(--lock); border-color: transparent; }
+.chip.ok { background: var(--accent-soft); color: var(--ok); border-color: transparent; }
+.chip.bad { background: var(--bad-soft); color: var(--bad); border-color: transparent; }
+.chip.warn { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+.chip.lock { background: var(--lock-soft); color: var(--lock); border-color: transparent; }
+
+/* Thread */
+.chat { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--thread); }
+.chat-head { display: flex; align-items: center; gap: 12px; padding: 10px 18px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.chat-head .back { display: none; border: 0; background: none; font-size: 20px; padding: 0 6px 0 0; }
+.thread { flex: 1; overflow-y: auto; padding: 18px 6% 10px; display: flex; flex-direction: column; gap: 4px; }
+.empty { margin: auto; text-align: center; color: var(--muted); max-width: 320px; padding: 24px; }
+.empty .big { font-size: 34px; margin-bottom: 6px; }
+.day { align-self: center; font-size: 11.5px; font-weight: 600; color: var(--muted); background: var(--panel); padding: 3px 12px; border-radius: 99px; margin: 12px 0 6px; box-shadow: var(--shadow); }
+.msg { max-width: min(560px, 78%); padding: 7px 10px 5px; border-radius: 12px; box-shadow: var(--shadow); position: relative; animation: pop .18s ease-out; }
+@keyframes pop { from { transform: translateY(4px); opacity: 0; } }
+.msg.in { align-self: flex-start; background: var(--in); border-top-left-radius: 4px; }
+.msg.out { align-self: flex-end; background: var(--out); border-top-right-radius: 4px; }
+.msg .text { white-space: pre-wrap; word-wrap: break-word; }
+.msg .meta { display: flex; justify-content: flex-end; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); margin-top: 2px; }
+.msg .kind { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.msg .err { color: var(--bad); font-size: 12px; margin-top: 4px; }
+.ticks { display: inline-flex; }
+.ticks svg { width: 16px; height: 11px; }
+.ticks.read { color: var(--read); }
+.ticks.failed { color: var(--bad); font-weight: 700; }
+
+/* Attachments */
+.att { border: 1px solid var(--line); background: var(--panel-2); border-radius: 10px; overflow: hidden; margin: 2px 0 4px; min-width: 240px; }
+.att .thumb { display: block; width: 100%; max-height: 300px; object-fit: cover; cursor: zoom-in; background: var(--line); }
+.att .row { display: flex; gap: 10px; align-items: center; padding: 9px 10px; }
+.ficon { width: 38px; height: 44px; border-radius: 6px; display: grid; place-items: center; font-size: 10px; font-weight: 800; color: #fff; flex-shrink: 0; letter-spacing: .03em; }
+.ficon.pdf { background: #d9443b; } .ficon.image { background: #3b82c4; } .ficon.audio { background: #8b5cf6; }
+.ficon.video { background: #e07a1f; } .ficon.sticker { background: #10a37f; } .ficon.document { background: #64748b; }
+.fname { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.finfo { font-size: 11.5px; color: var(--muted); }
+.gate { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-top: 1px solid var(--line); font-size: 12px; flex-wrap: wrap; }
+.gate .reason { color: var(--muted); flex: 1; min-width: 120px; }
+.btn { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 4px 11px; font-size: 12px; font-weight: 600; margin-left: auto; white-space: nowrap; }
+.btn:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.primary:hover { filter: brightness(1.08); color: var(--accent-ink); }
+.btn[disabled] { opacity: .6; cursor: progress; }
+
+/* Composer */
+.composer { display: flex; gap: 10px; padding: 10px 14px; background: var(--panel); border-top: 1px solid var(--line); align-items: flex-end; }
+.composer textarea { resize: none; height: 42px; max-height: 140px; }
+.composer .btn { margin: 0; height: 42px; padding: 0 18px; font-size: 14px; border-radius: 10px; }
+.hint { font-size: 11.5px; color: var(--muted); padding: 0 16px 8px; background: var(--panel); }
+
+/* Files */
+.files { flex: 1; overflow-y: auto; padding: 18px; }
+.filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+.filters button { border: 1px solid var(--line); background: var(--panel); border-radius: 99px; padding: 4px 13px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.filters button.on { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); display: flex; flex-direction: column; }
+.card .att { border: 0; border-radius: 0; margin: 0; background: none; flex: 1; display: flex; flex-direction: column; }
+.card .att .gate { margin-top: auto; }
+.card .preview { height: 150px; display: grid; place-items: center; background: var(--panel-2); border-bottom: 1px solid var(--line); }
+.card .preview img { width: 100%; height: 150px; object-fit: cover; cursor: zoom-in; }
+.card .preview .ficon { width: 54px; height: 64px; font-size: 13px; }
+.card .who { font-size: 12px; padding: 8px 10px 0; color: var(--muted); }
+
+/* Overlays */
+.toasts { position: fixed; top: 64px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 20; max-width: min(360px, calc(100vw - 32px)); }
+.toast { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 10px; padding: 10px 14px; box-shadow: var(--shadow); animation: pop .2s ease-out; font-size: 13px; }
+.toast.bad { border-left-color: var(--bad); }
+.toast b { display: block; }
+.lightbox { position: fixed; inset: 0; background: rgba(0, 0, 0, .82); display: none; place-items: center; z-index: 30; cursor: zoom-out; padding: 24px; }
+.lightbox.on { display: grid; }
+.lightbox img { max-width: 100%; max-height: 100%; border-radius: 8px; }
+
+@media (max-width: 760px) {
+  .top { padding: 8px 12px; gap: 10px; }
+  .stats { order: 5; margin-left: 0; width: 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .stat { flex-shrink: 0; }
+  .user { margin-left: auto; }
+  .chat-head { padding: 8px 12px; gap: 10px; }
+  .chat-head .chip { display: none; }
+  .user .who-name { display: none; }
+  .side { width: 100%; border-right: 0; }
+  #chats.thread-open .side { display: none; }
+  #chats:not(.thread-open) .chat { display: none; }
+  .chat-head .back { display: block; }
+  .thread { padding: 14px 10px; }
+  .msg { max-width: 92%; }
+  .att { min-width: 0; }
+  .files { padding: 12px; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><div class="logo">U</div>USHIKA <span class="live" id="live"><i></i><span>Live</span></span></div>
+  <nav class="tabs">
+    <button class="on" data-tab="chats">Chats</button>
+    <button data-tab="files">Files</button>
+  </nav>
+  <div class="stats" id="stats"></div>
+  <div class="user">
+    <span class="who-name muted">{{ request.user.get_username }}</span>
+    <a href="{% url 'admin:index' %}">Admin</a>
+    <form method="post" action="{% url 'admin:logout' %}">{% csrf_token %}<button class="linkbtn">Log out</button></form>
+  </div>
+</header>
+
+<main>
+  <section class="view on" id="chats">
+    <aside class="side">
+      <div class="search"><input id="q" type="search" placeholder="Search name or number" autocomplete="off"></div>
+      <div class="contacts" id="contacts"></div>
+    </aside>
+    <section class="chat" id="chat">
+      <div class="empty"><div class="big">💬</div>Pick a conversation on the left. New messages show up here on their own.</div>
+    </section>
+  </section>
+  <section class="view" id="files">
+    <div class="files">
+      <div class="filters" id="filters"></div>
+      <div class="grid" id="grid"></div>
+    </div>
+  </section>
+</main>
+
+<div class="toasts" id="toasts"></div>
+<div class="lightbox" id="lightbox"><img alt=""></div>
+
+{% verbatim %}
+<script>
+(() => {
+  const API = "/api/v1";
+  const POLL_MS = 4000;
+  const csrf = document.querySelector('meta[name="csrf-token"]').content;
+  const $ = (sel) => document.querySelector(sel);
+
+  const state = {
+    contacts: [], attachments: [], messageCount: 0, attachmentCount: 0,
+    selected: null, thread: [], threadSig: "", filesSig: "", contactsSig: "",
+    seen: {}, primed: false, fileFilter: "all", busy: new Set(),
+  };
+
+  // ---------- helpers ----------
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  async function api(path, opts = {}) {
+    const res = await fetch(API + path, {
+      credentials: "same-origin",
+      ...opts,
+      headers: { Accept: "application/json", "X-CSRFToken": csrf, ...(opts.body ? { "Content-Type": "application/json" } : {}), ...opts.headers },
+    });
+    if (res.status === 401) { location.href = "/admin/login/?next=/panel/"; throw new Error("Logged out"); }
+    let data = null;
+    try { data = await res.json(); } catch (_) {}
+    return { ok: res.ok, status: res.status, data };
+  }
+
+  const AVATAR_COLORS = ["#0f9d6b", "#3b82c4", "#8b5cf6", "#e07a1f", "#d9443b", "#0e9fb0", "#b4508f", "#5b7c2a"];
+  const avatar = (c) => {
+    const name = c.profile_name || c.wa_id;
+    const initials = name.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+    return `<div class="avatar" style="background:${AVATAR_COLORS[c.id % AVATAR_COLORS.length]}">${esc(initials)}</div>`;
+  };
+  const displayName = (c) => c.profile_name || "+" + c.wa_id;
+
+  const fmtTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const fmtDay = (iso) => {
+    const d = new Date(iso), today = new Date(), y = new Date(); y.setDate(today.getDate() - 1);
+    if (d.toDateString() === today.toDateString()) return "Today";
+    if (d.toDateString() === y.toDateString()) return "Yesterday";
+    return d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short", year: d.getFullYear() === today.getFullYear() ? undefined : "numeric" });
+  };
+  const fmtWhen = (iso) => {
+    if (!iso) return "";
+    const day = fmtDay(iso);
+    return day === "Today" ? fmtTime(iso) : day;
+  };
+  const fmtSize = (n) => n == null ? "" : n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`;
+
+  function toast(title, text = "", bad = false) {
+    const el = document.createElement("div");
+    el.className = "toast" + (bad ? " bad" : "");
+    el.innerHTML = `<b>${esc(title)}</b>${esc(text)}`;
+    $("#toasts").appendChild(el);
+    setTimeout(() => el.remove(), 5000);
+  }
+
+  const TICK = '<svg viewBox="0 0 16 11"><path d="M1 6l3.5 3.5L11 2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const DTICK = '<svg viewBox="0 0 16 11"><path d="M1 6l3.5 3.5L11 2M6.5 9.5L14 2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  function ticks(status) {
+    if (status === "read") return `<span class="ticks read" title="Read">${DTICK}</span>`;
+    if (status === "delivered") return `<span class="ticks" title="Delivered">${DTICK}</span>`;
+    if (status === "sent") return `<span class="ticks" title="Sent">${TICK}</span>`;
+    if (status === "failed") return `<span class="ticks failed" title="Failed">!</span>`;
+    return `<span class="ticks" title="${esc(status)}">🕓</span>`;
+  }
+
+  // ---------- attachments ----------
+  const kindOf = (a) => a.media_type === "image" ? "image"
+    : a.media_type === "document" && (a.mime_type || "").toLowerCase().startsWith("application/pdf") ? "pdf" : a.media_type;
+  const fileUrl = (a) => `${API}/attachments/${a.id}/download/`;
+  const ficon = (a) => {
+    const k = kindOf(a);
+    const label = { pdf: "PDF", image: "IMG", audio: "AUD", video: "VID", sticker: "STK" }[k] || "DOC";
+    return `<div class="ficon ${esc(k)}">${label}</div>`;
+  };
+
+  function gate(a) {
+    const saved = a.download_status === "downloaded";
+    if (saved) {
+      return `<div class="gate"><span class="chip ok">✓ Saved</span><span class="reason">${esc(fmtSize(a.file_size))} on disk</span>
+        <a class="btn" href="${fileUrl(a)}" download>Download</a></div>`;
+    }
+    if (a.save_refusal) {
+      return `<div class="gate"><span class="chip lock">🔒 Locked</span><span class="reason">${esc(a.save_refusal)}</span></div>`;
+    }
+    const busy = state.busy.has(a.id);
+    const button = `<button class="btn primary" data-save="${a.id}" ${busy ? "disabled" : ""}>${busy ? "Saving…" : a.download_status === "failed" ? "Retry" : "Save to disk"}</button>`;
+    if (a.download_status === "failed") {
+      return `<div class="gate"><span class="chip bad">Failed</span><span class="reason" title="${esc(a.last_error)}">${esc(a.last_error || "Download failed")}</span>${button}</div>`;
+    }
+    return `<div class="gate"><span class="chip warn">Not saved</span><span class="reason">Allowed by level</span>${button}</div>`;
+  }
+
+  function attachmentCard(a, inBubble) {
+    const k = kindOf(a);
+    const saved = a.download_status === "downloaded";
+    const name = a.filename || (k === "image" ? "Photo" : k === "pdf" ? "PDF document" : a.media_type);
+    const info = [a.mime_type, fmtSize(a.file_size)].filter(Boolean).join(" · ");
+    const img = k === "image" && saved ? `<img class="thumb" src="${fileUrl(a)}" alt="${esc(name)}" loading="lazy" data-zoom>` : "";
+    if (inBubble) {
+      return `<div class="att">${img}${img ? "" : `<div class="row">${ficon(a)}<div style="min-width:0"><div class="fname">${esc(name)}</div><div class="finfo">${esc(info)}</div></div></div>`}${gate(a)}</div>`;
+    }
+    const preview = k === "image" && saved ? `<img src="${fileUrl(a)}" alt="${esc(name)}" loading="lazy" data-zoom>` : ficon(a);
+    const who = a.contact ? displayName(a.contact) : "";
+    return `<div class="card"><div class="preview">${preview}</div>
+      <div class="who">${esc(who)} · ${esc(fmtWhen(a.created_at))}</div>
+      <div class="att"><div class="row" style="padding-top:4px"><div style="min-width:0"><div class="fname">${esc(name)}</div><div class="finfo">${esc(info)}</div></div></div>${gate(a)}</div></div>`;
+  }
+
+  async function saveAttachment(id) {
+    if (state.busy.has(id)) return;
+    state.busy.add(id);
+    renderAll(true);
+    try {
+      const { ok, status, data } = await api(`/attachments/${id}/save/`, { method: "POST" });
+      if (ok) toast("File saved", data.filename || `${data.media_type} saved to local storage`);
+      else if (status === 403) toast("Not allowed", data?.detail || "Blocked by contact level", true);
+      else toast("Save failed", data?.last_error || data?.detail || `HTTP ${status}`, true);
+    } catch (e) {
+      toast("Save failed", e.message, true);
+    } finally {
+      state.busy.delete(id);
+      await poll(true);
+    }
+  }
+
+  // ---------- rendering ----------
+  function renderStats() {
+    const saved = state.attachments.filter((a) => a.download_status === "downloaded").length;
+    const locked = state.attachments.filter((a) => a.download_status !== "downloaded" && a.save_refusal).length;
+    const failed = state.attachments.filter((a) => a.download_status === "failed").length;
+    const items = [
+      [state.contacts.length, "contacts"], [state.messageCount, "messages"],
+      [state.attachmentCount, "files"], [saved, "saved"], [locked, "locked"], [failed, "failed"],
+    ];
+    $("#stats").innerHTML = items.map(([n, label]) => `<div class="stat"><b>${n}</b><span>${label}</span></div>`).join("");
+  }
+
+  function renderContacts() {
+    const q = $("#q").value.trim().toLowerCase();
+    const list = state.contacts.filter((c) => !q || (c.profile_name || "").toLowerCase().includes(q) || c.wa_id.includes(q));
+    if (!list.length) {
+      $("#contacts").innerHTML = `<div class="empty">${state.contacts.length ? "No matches." : "No contacts yet. They appear after their first WhatsApp message."}</div>`;
+      return;
+    }
+    $("#contacts").innerHTML = list.map((c) => {
+      const unread = c.last_message_at && c.last_message_at > (state.seen[c.id] || "") && c.id !== state.selected?.id;
+      return `<div class="contact ${c.id === state.selected?.id ? "on" : ""}" data-contact="${c.id}">
+        ${avatar(c)}
+        <div class="cbody">
+          <div class="crow"><span class="cname">${esc(displayName(c))}</span><span class="ctime">${esc(fmtWhen(c.last_message_at))}</span></div>
+          <div class="csub"><span>+${esc(c.wa_id)}</span>${c.level ? `<span class="chip level">${esc(c.level)}</span>` : `<span class="chip">No level</span>`}
+          ${unread ? '<span class="dot" title="New messages"></span>' : ""}</div>
+        </div></div>`;
+    }).join("");
+  }
+
+  function renderChat(force) {
+    const chat = $("#chat");
+    const c = state.selected;
+    if (!c) return;
+    const sig = JSON.stringify([c, state.thread, [...state.busy]]);
+    if (!force && sig === state.threadSig) return;
+    state.threadSig = sig;
+
+    const old = chat.querySelector(".thread");
+    const nearBottom = !old || old.scrollHeight - old.scrollTop - old.clientHeight < 120;
+    const prevScroll = old ? old.scrollTop : 0;
+    const draft = chat.querySelector("textarea")?.value || "";
+    const hadFocus = document.activeElement === chat.querySelector("textarea");
+
+    let lastDay = "";
+    const items = state.thread.map((m) => {
+      const day = fmtDay(m.timestamp);
+      const sep = day !== lastDay ? `<div class="day">${esc(day)}</div>` : "";
+      lastDay = day;
+      const atts = m.attachments.map((a) => attachmentCard(a, true)).join("");
+      const kind = m.message_type !== "text" && !m.attachments.length ? `<div class="kind">${esc(m.message_type)}</div>` : "";
+      const showBody = m.body && !(m.attachments.length && m.body === m.attachments[0].filename);
+      const err = m.status === "failed" && (m.error_title || m.error_code) ? `<div class="err">${esc(m.error_title || "")} ${m.error_code ? `(code ${esc(m.error_code)})` : ""}</div>` : "";
+      const meta = `<div class="meta">${esc(fmtTime(m.timestamp))}${m.direction === "outbound" ? ticks(m.status) : ""}</div>`;
+      return `${sep}<div class="msg ${m.direction === "inbound" ? "in" : "out"}">${kind}${atts}${showBody ? `<div class="text">${esc(m.body)}</div>` : ""}${err}${meta}</div>`;
+    }).join("");
+
+    chat.innerHTML = `
+      <div class="chat-head">
+        <button class="back" data-back title="Back">‹</button>
+        ${avatar(c)}
+        <div style="flex:1;min-width:0">
+          <div class="cname">${esc(displayName(c))}</div>
+          <div class="csub">+${esc(c.wa_id)} · ${c.message_count} messages</div>
+        </div>
+        ${c.level ? `<span class="chip level">Level: ${esc(c.level)}</span>` : `<span class="chip">No level · files locked</span>`}
+        <a class="btn" href="/admin/whatsapp/contact/${c.id}/change/" target="_blank">Edit level</a>
+      </div>
+      <div class="thread">${items || '<div class="empty">No messages yet.</div>'}</div>
+      <form class="composer" id="composer">
+        <textarea name="text" placeholder="Type a reply…" rows="1"></textarea>
+        <button class="btn primary" type="submit">Send</button>
+      </form>
+      <div class="hint">Free-text replies only work within 24 hours of the customer's last message.</div>`;
+
+    const thread = chat.querySelector(".thread");
+    thread.scrollTop = nearBottom ? thread.scrollHeight : prevScroll;
+    const ta = chat.querySelector("textarea");
+    ta.value = draft;
+    if (hadFocus) ta.focus();
+  }
+
+  function renderFiles(force) {
+    const f = state.fileFilter;
+    const list = state.attachments.filter((a) => {
+      const saved = a.download_status === "downloaded";
+      if (f === "saved") return saved;
+      if (f === "ready") return !saved && !a.save_refusal && a.download_status !== "failed";
+      if (f === "locked") return !saved && a.save_refusal;
+      if (f === "failed") return a.download_status === "failed";
+      if (f === "images") return kindOf(a) === "image";
+      if (f === "pdfs") return kindOf(a) === "pdf";
+      return true;
+    });
+    const filters = [["all", "All"], ["images", "Images"], ["pdfs", "PDFs"], ["saved", "Saved"], ["ready", "Ready to save"], ["locked", "Locked"], ["failed", "Failed"]];
+    $("#filters").innerHTML = filters.map(([k, label]) => `<button data-filter="${k}" class="${k === f ? "on" : ""}">${label}</button>`).join("");
+    const sig = JSON.stringify([f, list, [...state.busy]]);
+    if (!force && sig === state.filesSig) return;
+    state.filesSig = sig;
+    $("#grid").innerHTML = list.length ? list.map((a) => attachmentCard(a, false)).join("")
+      : `<div class="empty" style="grid-column:1/-1"><div class="big">🗂️</div>No files here.</div>`;
+  }
+
+  function renderAll(force) {
+    renderStats();
+    const sig = JSON.stringify([state.contacts, state.selected?.id, $("#q").value, state.seen]);
+    if (force || sig !== state.contactsSig) { state.contactsSig = sig; renderContacts(); }
+    renderChat(force);
+    renderFiles(force);
+  }
+
+  // ---------- data ----------
+  async function loadThread() {
+    if (!state.selected) return;
+    const { ok, data } = await api(`/messages/?contact=${state.selected.id}&ordering=-timestamp&page_size=200`);
+    if (ok) state.thread = data.results.reverse();
+  }
+
+  let polling = false;
+  async function poll(force = false) {
+    if (polling && !force) return;
+    polling = true;
+    try {
+      const [contacts, messages, attachments] = await Promise.all([
+        api("/contacts/?page_size=200"),
+        api("/messages/?page_size=1"),
+        api("/attachments/?ordering=-created_at&page_size=200"),
+      ]);
+      if (!contacts.ok || !messages.ok || !attachments.ok) throw new Error("API error");
+
+      const previous = Object.fromEntries(state.contacts.map((c) => [c.id, c.last_message_at]));
+      state.contacts = contacts.data.results;
+      state.messageCount = messages.data.count;
+      state.attachments = attachments.data.results;
+      state.attachmentCount = attachments.data.count;
+
+      for (const c of state.contacts) {
+        if (!state.primed || !(c.id in state.seen)) state.seen[c.id] = c.last_message_at || "";
+        else if (state.primed && c.last_message_at && previous[c.id] !== c.last_message_at && c.id !== state.selected?.id) {
+          toast("New message", displayName(c));
+        }
+      }
+      state.primed = true;
+      if (state.selected) {
+        state.selected = state.contacts.find((c) => c.id === state.selected.id) || state.selected;
+        state.seen[state.selected.id] = state.selected.last_message_at || "";
+        await loadThread();
+      }
+      setLive(true);
+      renderAll(force);
+    } catch (e) {
+      setLive(false);
+    } finally {
+      polling = false;
+    }
+  }
+
+  function setLive(on) {
+    $("#live").classList.toggle("off", !on);
+    $("#live span").textContent = on ? "Live" : "Offline";
+  }
+
+  async function selectContact(id) {
+    state.selected = state.contacts.find((c) => c.id === id);
+    state.seen[id] = state.selected.last_message_at || "";
+    state.thread = [];
+    state.threadSig = "";
+    $("#chats").classList.add("thread-open");
+    renderContacts();
+    await loadThread();
+    renderChat(true);
+    const t = document.querySelector(".thread");
+    if (t) t.scrollTop = t.scrollHeight;
+  }
+
+  async function send(form) {
+    const ta = form.querySelector("textarea");
+    const text = ta.value.trim();
+    if (!text || !state.selected) return;
+    const button = form.querySelector("button");
+    button.disabled = true;
+    try {
+      const { ok, status, data } = await api("/messages/send/", {
+        method: "POST", body: JSON.stringify({ to: state.selected.wa_id, type: "text", text }),
+      });
+      if (ok) ta.value = "";
+      else if (status === 502) { ta.value = ""; toast("WhatsApp rejected the message", data?.error_title || data?.error_details || "", true); }
+      else toast("Could not send", data ? Object.values(data).flat().join(" ") : `HTTP ${status}`, true);
+    } finally {
+      button.disabled = false;
+      await poll(true);
+    }
+  }
+
+  // ---------- events ----------
+  document.addEventListener("click", (e) => {
+    const t = e.target;
+    const contact = t.closest("[data-contact]");
+    if (contact) return selectContact(Number(contact.dataset.contact));
+    const save = t.closest("[data-save]");
+    if (save) return saveAttachment(Number(save.dataset.save));
+    const tab = t.closest("[data-tab]");
+    if (tab) {
+      document.querySelectorAll("[data-tab]").forEach((b) => b.classList.toggle("on", b === tab));
+      document.querySelectorAll(".view").forEach((v) => v.classList.toggle("on", v.id === tab.dataset.tab));
+      return;
+    }
+    const filter = t.closest("[data-filter]");
+    if (filter) { state.fileFilter = filter.dataset.filter; return renderFiles(true); }
+    if (t.closest("[data-back]")) { $("#chats").classList.remove("thread-open"); return; }
+    if (t.matches("[data-zoom]")) {
+      const lb = $("#lightbox");
+      lb.querySelector("img").src = t.src;
+      lb.classList.add("on");
+      return;
+    }
+    if (t.closest("#lightbox")) $("#lightbox").classList.remove("on");
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") $("#lightbox").classList.remove("on");
+    if (e.key === "Enter" && !e.shiftKey && e.target.matches(".composer textarea")) {
+      e.preventDefault();
+      send(e.target.form);
+    }
+  });
+  document.addEventListener("submit", (e) => {
+    if (e.target.id === "composer") { e.preventDefault(); send(e.target); }
+  });
+  $("#q").addEventListener("input", () => renderContacts());
+
+  poll(true);
+  setInterval(() => { if (!document.hidden) poll(); }, POLL_MS);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
+})();
+</script>
+{% endverbatim %}
+</body>
+</html>

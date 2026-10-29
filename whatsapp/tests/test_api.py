@@ -83,6 +83,19 @@ class AuthTests(APITestCase):
     def test_health_is_public(self):
         self.assertEqual(APIClient().get("/health/").json(), {"status": "ok"})
 
+    def test_panel_is_for_staff_only(self):
+        anonymous = APIClient().get("/panel/")
+        self.assertEqual(anonymous.status_code, 302)
+        self.assertIn("/admin/login/", anonymous["Location"])
+        client = APIClient()
+        client.force_login(self.user)
+        self.assertEqual(client.get("/panel/").status_code, 302)
+        self.user.is_staff = True
+        self.user.save()
+        response = client.get("/panel/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "USHIKA Live")
+
 
 class ReadAPITests(APITestCase):
     def test_list_filter_and_search_messages(self):

@@ -3,6 +3,7 @@ from django.urls import reverse
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from ..media import save_refusal
 from ..messaging import MEDIA_SEND_TYPES, SEND_TYPES, normalize_phone
 from ..models import Contact, MediaAttachment, Message, MessageStatusEvent
 
@@ -32,13 +33,18 @@ class ContactSummarySerializer(serializers.ModelSerializer):
 
 
 class MediaAttachmentSerializer(serializers.ModelSerializer):
+    contact = ContactSummarySerializer(source="message.contact", read_only=True)
     download_url = serializers.SerializerMethodField()
+    save_refusal = serializers.SerializerMethodField(
+        help_text='Why the requesting user may not save this file, or "" when they may.'
+    )
 
     class Meta:
         model = MediaAttachment
         fields = [
             "id",
             "message",
+            "contact",
             "media_id",
             "media_type",
             "mime_type",
@@ -51,6 +57,7 @@ class MediaAttachmentSerializer(serializers.ModelSerializer):
             "last_error",
             "downloaded_at",
             "download_url",
+            "save_refusal",
             "created_at",
         ]
 
@@ -61,6 +68,10 @@ class MediaAttachmentSerializer(serializers.ModelSerializer):
         url = reverse("api:attachment-download", args=[obj.pk])
         request = self.context.get("request")
         return request.build_absolute_uri(url) if request else url
+
+    def get_save_refusal(self, obj) -> str:
+        request = self.context.get("request")
+        return save_refusal(obj, admin=bool(request and request.user.is_superuser))
 
 
 class MessageStatusEventSerializer(serializers.ModelSerializer):

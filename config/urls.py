@@ -3,6 +3,8 @@ from django.http import JsonResponse
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
+from whatsapp.panel import panel
+
 
 def health(request):
     return JsonResponse({"status": "ok"})
@@ -11,6 +13,7 @@ def health(request):
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("health/", health, name="health"),
+    path("panel/", panel, name="panel"),
     path("webhooks/", include("whatsapp.urls")),
     path("api/v1/", include("whatsapp.api.urls")),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),

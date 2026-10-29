@@ -82,7 +82,10 @@ def download_attachment(attachment: MediaAttachment, client: WhatsAppClient | No
     try:
         _download(attachment, client)
     except (WhatsAppAPIError, MediaDownloadError) as exc:
-        outcome = DownloadOutcome(ok=False, retryable=exc.retryable, error=str(exc))
+        error = str(exc)
+        if getattr(exc, "code", None) == 190:
+            error = "WhatsApp access token expired or invalid (code 190). Set a new WHATSAPP_ACCESS_TOKEN and restart."
+        outcome = DownloadOutcome(ok=False, retryable=exc.retryable, error=error)
     except (requests.RequestException, OSError) as exc:
         outcome = DownloadOutcome(ok=False, retryable=True, error=f"{type(exc).__name__}: {exc}")
     else:
