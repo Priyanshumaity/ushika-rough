@@ -118,6 +118,13 @@ class MediaDownloadTests(WhatsAppTestCase):
         self.assertEqual(attachment.download_status, MediaAttachment.DownloadStatus.FAILED)
         self.assertIn("HTML", attachment.last_error)
 
+    def test_expired_access_token_is_named_in_the_error(self):
+        with responses.RequestsMock() as rsps:
+            rsps.get(f"{GRAPH}/111222333", status=401, json={"error": {"message": "Authentication Error", "code": 190}})
+            attachment = self.receive(image_message())
+        self.assertEqual(attachment.download_status, MediaAttachment.DownloadStatus.FAILED)
+        self.assertIn("WHATSAPP_ACCESS_TOKEN", attachment.last_error)
+
     def test_failed_download_can_be_saved_again_through_the_api(self):
         with responses.RequestsMock() as rsps:
             rsps.get(f"{GRAPH}/111222333", status=500, json={"error": {"message": "Temporary", "code": 2}})
@@ -223,6 +230,24 @@ class SaveRulesTests(WhatsAppTestCase):
             response = self.save(self.admin, attachment)
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()["detail"], "This contact's level does not allow saving images.")
+
+    def test_attachment_listing_shows_who_sent_it_and_whether_the_user_may_save_it(self):
+        self.set_level(can_save_images=True)
+        self.receive(image_message())
+        self.receive(document_message())
+        self.receive(audio_message())
+
+        def refusals(client):
+            rows = client.get("/api/v1/attachments/").json()["results"]
+            self.assertTrue(all(row["contact"]["wa_id"] == CUSTOMER for row in rows))
+            return {row["media_type"]: row["save_refusal"] for row in rows}
+
+        self.assertEqual(refusals(self.operator), {
+            "image": "",
+            "document": "This contact's level does not allow saving PDFs.",
+            "audio": "Only admins can save audio files.",
+        })
+        self.assertEqual(refusals(self.admin)["audio"], "")
 
     def test_other_media_can_only_be_saved_by_an_admin(self):
         self.set_level(can_save_images=True, can_save_pdfs=True)

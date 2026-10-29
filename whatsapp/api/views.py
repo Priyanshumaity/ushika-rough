@@ -66,7 +66,7 @@ class ContactViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class MessageViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Message.objects.select_related("contact", "sent_by").prefetch_related("attachments")
+    queryset = Message.objects.select_related("contact__level", "sent_by").prefetch_related("attachments")
     lookup_value_regex = r"\d+"
     filterset_class = MessageFilter
     search_fields = ["body", "contact__wa_id", "contact__profile_name"]
@@ -126,7 +126,7 @@ class MessageViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class MediaAttachmentViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = MediaAttachment.objects.all()
+    queryset = MediaAttachment.objects.select_related("message__contact__level")
     serializer_class = MediaAttachmentSerializer
     lookup_value_regex = r"\d+"
     filterset_fields = ["download_status", "media_type", "message"]

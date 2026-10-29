@@ -25,7 +25,10 @@ USHIKA is a Django REST backend that connects the official **Meta WhatsApp Busin
 | File storage | Local filesystem through Django's storage API (`MEDIA_ROOT`, default `storage/`) |
 | HTTP client | `requests` (GET retries on 429/5xx) |
 | API docs | OpenAPI 3 via drf-spectacular (`/api/schema/`, `/api/docs/`) |
-| Filtering | django-filter |
+| Filtering | django-filter |[28/10/26, 13:45:17] Adi: whatsapp integration er part ta theke
+[28/10/26, 14:23:58] Subhashish Halder IIIT: 1.⁠ ⁠Check login using api
+2.⁠ ⁠⁠save image and pdf only based on user level
+3.⁠ ⁠⁠use local disk for saving the fetch results as of now for testing purpose
 | Background jobs | Celery + Redis, optional (`USE_CELERY=true`) |
 | Testing | Django `TestCase`, DRF `APIClient`, `responses` (HTTP mocking), Postman |
 
@@ -124,6 +127,7 @@ python manage.py runserver
 | `http://127.0.0.1:8000/api/v1/` | REST API (token required) |
 | `http://127.0.0.1:8000/api/docs/` | Swagger UI. Public in DEBUG; staff-only otherwise. |
 | `http://127.0.0.1:8000/admin/` | Django admin |
+| `http://127.0.0.1:8000/panel/` | Live panel: chats and files update on their own; save, download and reply from one page (staff login) |
 | `http://127.0.0.1:8000/health/` | Liveness check |
 
 ### Receiving real webhooks locally

@@ -42,6 +42,7 @@ Open work and blockers: [docs/TASKS.md](docs/TASKS.md).
 | `whatsapp/tasks.py` | `download_media_task` and `schedule_media_download` (Celery or inline, after commit) |
 | `whatsapp/api/` | DRF serializers, viewsets, router (`/api/v1/`), pagination |
 | `whatsapp/admin.py` | Admin (including contact levels), plus the "Save file" and "Reprocess" actions |
+| `whatsapp/panel.py`, `templates/whatsapp/panel.html` | `/panel/` live operator page (staff). Self-contained HTML/JS that polls the REST API with the session; no server logic of its own |
 | `whatsapp/management/commands/` | `reprocess_webhooks`, `retry_media_downloads` |
 | `whatsapp/tests/` | `helpers.py` (payload builders, signed-webhook test case) and per-area tests |
 

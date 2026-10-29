@@ -140,6 +140,7 @@ Inbound and outbound messages, newest first, with attachments inlined.
       "error_code": "", "error_title": "", "error_details": "",
       "attachments": [{
         "id": 1, "message": 2,
+        "contact": {"id": 1, "wa_id": "16505551234", "profile_name": "Kerry Fisher"},
         "media_id": "1013859600285441",
         "media_type": "image",
         "mime_type": "image/jpeg",
@@ -152,6 +153,7 @@ Inbound and outbound messages, newest first, with attachments inlined.
         "last_error": "",
         "downloaded_at": "2026-10-27T19:19:32.007665Z",
         "download_url": "http://127.0.0.1:8000/api/v1/attachments/1/download/",
+        "save_refusal": "",
         "created_at": "2026-10-27T19:19:31.981539Z"
       }],
       "created_at": "2026-10-27T19:19:31.981539Z"
@@ -317,7 +319,7 @@ Setting `WHATSAPP_DOWNLOAD_MEDIA=true` brings back download on arrival, for imag
 | `message` | message `id` |
 | `ordering` | `created_at`, `downloaded_at` |
 
-Each item has the same shape as in the message example. `download_url` is `null` until the file is downloaded.
+Each item has the same shape as in the message example. `download_url` is `null` until the file is downloaded. `save_refusal` is the reason `POST …/save/` would return `403` for the requesting user, or `""` when the save is allowed.
 
 ### `GET /api/v1/attachments/{id}/`
 A single attachment.
@@ -395,3 +397,4 @@ Payload format: Meta's Cloud API webhook reference (developers.facebook.com → 
 | `GET /api/schema/` | OpenAPI 3 YAML. Open in DEBUG; staff-only otherwise. |
 | `GET /api/docs/` | Swagger UI. Same access as the schema. |
 | `/admin/` | Django admin (staff) |
+| `/panel/` | Live operator panel (staff): chats, files and their save status, refreshed every 4 seconds through this API |
